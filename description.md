@@ -228,7 +228,7 @@ HTML-страница генерируется на ESP32 функцией `Send
 ### Структура страницы
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph PROGMEM[Фрагменты во Flash]
         P1[HTML_PART1<br/>head + CSS + заголовок]
         P2[HTML_PART2<br/>метка времени будильника]
