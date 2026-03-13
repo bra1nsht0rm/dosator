@@ -19,7 +19,7 @@
 После установки `mode` метод `tick()` на следующей итерации подхватывает его и запускает двигатель. Весь цикл неблокирующий — время фазы отсчитывается через `millis()`, функция `delay()` не используется.
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph Источники_команд
         RTC[RTC Alarm1]
         HTTP[HTTP запрос<br/>из браузера]
@@ -156,7 +156,7 @@ flowchart LR
 ### Блок-схема
 
 ```mermaid
-flowchart TD
+flowchart LR
     A[tick] --> B{active?}
 
     B -- Нет --> C{mode?}
@@ -216,3 +216,79 @@ stateDiagram-v2
 - Первый запуск: записывает дефолты `dozator` / `adminadmin`
 - Если роутер недоступен — поднимает AP `ESP32` / `12345678` по адресу `192.168.1.1`
 - Смена Wi-Fi через `/api/setwifi` → сохранение в NVS → перезагрузка
+
+---
+
+## Веб-интерфейс
+
+### Общий принцип
+
+HTML-страница генерируется на ESP32 функцией `SendHTML()`. Весь контент (HTML, CSS, JS) хранится во Flash-памяти через `PROGMEM`, чтобы не занимать оперативную память. При запросе на `/` страница собирается из фрагментов в статический буфер `buf[4096]`, в который подставляются динамические значения — текущее время и время будильника.
+
+### Структура страницы
+
+```mermaid
+flowchart LR
+    subgraph PROGMEM[Фрагменты во Flash]
+        P1[HTML_PART1<br/>head + CSS + заголовок]
+        P2[HTML_PART2<br/>метка времени будильника]
+        P3[HTML_PART3<br/>кнопки и поля управления]
+        PW[HTML_PART_WIFI<br/>форма Wi-Fi]
+        JS1[JS: setWifi]
+        JS2[JS: engineCmd]
+        JS3[JS: sendRequest]
+    end
+
+    subgraph SendHTML[SendHTML — сборка]
+        T1[Текущее время RTC]
+        T2[Время будильника]
+    end
+
+    P1 --> SendHTML
+    T1 --> SendHTML
+    P2 --> SendHTML
+    T2 --> SendHTML
+    P3 --> SendHTML
+    PW --> SendHTML
+    JS1 --> SendHTML
+    JS2 --> SendHTML
+    JS3 --> SendHTML
+    SendHTML --> BUF[buf 4096 байт<br/>→ HTTP 200]
+```
+
+### Фрагменты PROGMEM
+
+| Фрагмент | Содержимое |
+|---|---|
+| `HTML_PART1` | `<!DOCTYPE html>`, viewport, CSS-стили, заголовок «Управление дозатором v2», метка «Текущее время:» |
+| `HTML_PART2` | Метка «Время запуска:» |
+| `HTML_PART3` | Кнопка «Запустить сейчас» (`/startengine`), поле `hh:mm` для задания времени, кнопки задания текущего времени и времени будильника, поле `seconds` (1–40) и кнопки «Движение вправо» / «Движение влево», блок `<div id="result">` для вывода ответа |
+| `HTML_PART_WIFI` | Поля SSID и пароль, кнопка «Сохранить Wi-Fi» |
+
+### JavaScript-функции
+
+Все функции используют `fetch()` для асинхронных запросов к API и выводят результат (JSON) в блок `#result`.
+
+| Функция | Что делает | Какой API вызывает |
+|---|---|---|
+| `sendRequest(isAlarm)` | Берёт значение из поля `#textInput` (формат `hh:mm`). Если `isAlarm == true` — задаёт время будильника, иначе — текущее время RTC | `/api/setalarmtime?text=` или `/api/settime?text=` |
+| `engineCmd(dir)` | Берёт число секунд из поля `#engine_seconds`. Отправляет запрос на движение вправо или влево | `/api/engine_right?seconds=` или `/api/engine_left?seconds=` |
+| `setWifi()` | Берёт SSID и пароль из полей `#wifi_ssid` / `#wifi_pass`. Сохраняет в NVS и перезагружает ESP32 | `/api/setwifi?ssid=&pass=` |
+
+### Элементы страницы
+
+| Элемент | Тип | id | Назначение |
+|---|---|---|---|
+| Текущее время | Текст | — | Отображает `hh:mm:ss` из RTC (подставляется при генерации) |
+| Время будильника | Текст | — | Отображает `hh:mm` из Alarm1 (подставляется при генерации) |
+| «Запустить сейчас» | Ссылка-кнопка | — | Переходит на `/startengine` (Both, 40 с) |
+| Поле времени | `<input text>` | `textInput` | Ввод `hh:mm` для времени/будильника |
+| «Задать время запуска» | Кнопка | — | `sendRequest(true)` |
+| «Задать текущее время» | Кнопка | — | `sendRequest(false)` |
+| Поле секунд | `<input number>` | `engine_seconds` | Ввод длительности 1–40 с |
+| «Движение вправо» | Кнопка | — | `engineCmd("right")` |
+| «Движение влево» | Кнопка | — | `engineCmd("left")` |
+| Поле SSID | `<input text>` | `wifi_ssid` | Ввод SSID (макс. 31 символ) |
+| Поле пароля | `<input password>` | `wifi_pass` | Ввод пароля (макс. 63 символа) |
+| «Сохранить Wi-Fi» | Кнопка | — | `setWifi()` |
+| Результат | `<div>` | `result` | Вывод JSON-ответа от API |
