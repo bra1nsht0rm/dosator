@@ -156,7 +156,7 @@ flowchart LR
 ### Блок-схема
 
 ```mermaid
-flowchart LR
+flowchart TD
     A[tick] --> B{active?}
 
     B -- Нет --> C{mode?}
